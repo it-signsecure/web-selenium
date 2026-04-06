@@ -37,7 +37,7 @@ jobs:
           cache-dependency-path: portfolio/package-lock.json
 
       - name: Install Node dependencies
-        run: npm ci
+        run: npm install
         working-directory: portfolio
 
       - name: Build React app (production)

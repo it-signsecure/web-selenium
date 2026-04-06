@@ -5,7 +5,7 @@ Run with:
     pytest tests/test_portfolio.py -v
 
 Requires Chrome to be installed. ChromeDriver is managed automatically by
-webdriver-manager — no manual download needed.
+Selenium's built-in selenium-manager (Selenium 4.6+) — no manual download needed.
 
 The portfolio dev server (or `serve`) must be running at BASE_URL before
 running these tests.
@@ -16,9 +16,7 @@ from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
-from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.chrome.options import Options
-from webdriver_manager.chrome import ChromeDriverManager
 
 # Change to 5000 when running against `serve -s portfolio/build -l 5000`
 BASE_URL = "http://localhost:3000"
@@ -45,10 +43,10 @@ def driver():
     options.add_argument("--disable-dev-shm-usage")  # avoids /dev/shm crash in CI
     options.add_argument("--window-size=1280,800")
 
-    # webdriver-manager auto-downloads the ChromeDriver version that matches
-    # the installed Chrome — eliminates version mismatch errors.
-    service = Service(ChromeDriverManager().install())
-    driver = webdriver.Chrome(service=service, options=options)
+    # Selenium 4.6+ ships with selenium-manager which automatically locates
+    # and downloads the correct ChromeDriver for the installed Chrome version.
+    # No external webdriver-manager package needed — just pass options.
+    driver = webdriver.Chrome(options=options)
 
     # implicitly_wait tells Selenium to retry finding an element for up to N
     # seconds before raising NoSuchElementException.
