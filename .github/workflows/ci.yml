@@ -14,8 +14,6 @@ name: CI - Lint, Build, and Selenium Tests
 on:
   push:
     branches: ["**"]
-  pull_request:
-    branches: ["**"]
 
 jobs:
   # ───────────────────────────────────────────────────────────────────────────
