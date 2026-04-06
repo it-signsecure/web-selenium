@@ -246,7 +246,7 @@ jobs:
             echo "Skipping cursor-agent run (analysis previously skipped)."
             exit 0
           fi
-          cursor-agent --print --output-format text -p "$(cat prompt.txt)" > review.txt
+          cursor-agent --print --output-format text --yolo -p "$(cat prompt.txt)" > review.txt
 
       - name: Comment on PR
         env:
