@@ -1,0 +1,119 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# CI Workflow: Lint → Build → Selenium Tests
+#
+# Runs on every push to any branch and on every pull request.
+# Two jobs run in sequence:
+#   1. lint-and-build  — ESLint + npm run build
+#   2. selenium-tests  — serve the built site + run pytest
+#
+# If job 1 fails, job 2 is skipped automatically (via `needs:`).
+# ─────────────────────────────────────────────────────────────────────────────
+
+name: CI - Lint, Build, and Selenium Tests
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+    branches: ["**"]
+
+jobs:
+  # ───────────────────────────────────────────────────────────────────────────
+  # Job 1: ESLint + Production Build
+  # ───────────────────────────────────────────────────────────────────────────
+  lint-and-build:
+    name: ESLint + Build
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: portfolio/package-lock.json
+
+      - name: Install Node dependencies
+        run: npm ci
+        working-directory: portfolio
+
+      - name: Run ESLint
+        # Catches syntax errors and code quality issues before building
+        run: npm run lint
+        working-directory: portfolio
+
+      - name: Build React app (production)
+        # Catches compilation errors; output goes to portfolio/build/
+        run: npm run build
+        working-directory: portfolio
+
+      - name: Upload build artifact
+        # Share the build with the next job so we don't build twice
+        uses: actions/upload-artifact@v4
+        with:
+          name: react-build
+          path: portfolio/build/
+
+  # ───────────────────────────────────────────────────────────────────────────
+  # Job 2: Serve the built site and run Selenium tests
+  # ───────────────────────────────────────────────────────────────────────────
+  selenium-tests:
+    name: Selenium Tests
+    runs-on: ubuntu-latest
+    needs: lint-and-build  # only runs if Job 1 succeeded
+
+    steps:
+      - name: Checkout code
+        # Needed to access the tests/ directory
+        uses: actions/checkout@v4
+
+      - name: Download build artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: react-build
+          path: portfolio/build/
+
+      - name: Set up Node.js (for serve)
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install serve (static file server)
+        run: npm install -g serve
+
+      - name: Serve built React app in background
+        # `serve` starts a zero-config static server in ~1 second.
+        # We use the production build (not `npm start`) to match what S3 serves.
+        # The `&` runs it as a background process; the job continues immediately.
+        run: serve -s portfolio/build -l 3000 &
+
+      - name: Wait for server to be ready
+        # Poll until the server responds (up to 30 seconds).
+        # Using curl retry is more reliable than a fixed sleep.
+        run: |
+          for i in {1..15}; do
+            curl -s http://localhost:3000 > /dev/null && echo "Server ready" && break
+            echo "Waiting for server... attempt $i/15"
+            sleep 2
+          done
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install Python test dependencies
+        run: pip install -r tests/requirements.txt
+
+      - name: Install Chrome (headless-compatible)
+        # browser-actions/setup-chrome installs a pinned Chrome build on the
+        # runner. Ubuntu runners no longer ship Chrome pre-installed (as of 2024).
+        uses: browser-actions/setup-chrome@v1
+
+      - name: Run Selenium tests
+        # -v gives verbose output so each test name appears in the Actions log.
+        # The BASE_URL in test_portfolio.py defaults to http://localhost:3000.
+        run: pytest tests/test_portfolio.py -v

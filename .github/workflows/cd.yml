@@ -1,0 +1,81 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# CD Workflow: Build → Deploy to AWS S3
+#
+# Runs ONLY on push to the `main` branch (i.e. after a PR is merged).
+# CI must have already passed on that branch — GitHub branch protection rules
+# should enforce this.
+#
+# Required GitHub Secrets (set in repo Settings → Secrets → Actions):
+#   AWS_ACCESS_KEY_ID      — IAM user access key
+#   AWS_SECRET_ACCESS_KEY  — IAM user secret key
+#   AWS_REGION             — e.g. ap-south-1
+#   S3_BUCKET_NAME         — exact S3 bucket name
+#   CLOUDFRONT_DISTRIBUTION_ID — (optional) for cache invalidation
+# ─────────────────────────────────────────────────────────────────────────────
+
+name: CD - Deploy to AWS S3
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  deploy:
+    name: Build and Deploy to S3
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: portfolio/package-lock.json
+
+      - name: Install Node dependencies
+        run: npm ci
+        working-directory: portfolio
+
+      - name: Build React app (production)
+        run: npm run build
+        working-directory: portfolio
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ secrets.AWS_REGION }}
+
+      - name: Deploy JS/CSS/images to S3 (long cache)
+        # Static assets (JS, CSS, images) have content-hashed filenames.
+        # Safe to cache for a full year — the hash changes when content changes.
+        run: |
+          aws s3 sync portfolio/build/ s3://${{ secrets.S3_BUCKET_NAME }} \
+            --delete \
+            --cache-control "max-age=31536000,public,immutable" \
+            --exclude "*.html"
+
+      - name: Deploy HTML files to S3 (no cache)
+        # HTML files must NOT be cached by browsers.
+        # When we deploy a new build, we want users to immediately get the
+        # new index.html that references the new hashed JS/CSS filenames.
+        run: |
+          aws s3 sync portfolio/build/ s3://${{ secrets.S3_BUCKET_NAME }} \
+            --delete \
+            --cache-control "no-cache,no-store,must-revalidate" \
+            --include "*.html" \
+            --exclude "*"
+
+      - name: Invalidate CloudFront cache (optional)
+        # If CLOUDFRONT_DISTRIBUTION_ID is set, clear the CDN cache so users
+        # see the new version immediately without waiting for TTL expiry.
+        if: ${{ secrets.CLOUDFRONT_DISTRIBUTION_ID != '' }}
+        run: |
+          aws cloudfront create-invalidation \
+            --distribution-id ${{ secrets.CLOUDFRONT_DISTRIBUTION_ID }} \
+            --paths "/*"
