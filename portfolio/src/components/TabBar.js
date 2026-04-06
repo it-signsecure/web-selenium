@@ -1,5 +1,5 @@
 function TabBar({ activeTab, onTabChange }) {
-  const tabs = ["projects", "blogs", "Highlights"];
+  const tabs = ["projects", "blogs", "news"];
 
   return (
     <nav data-testid="tab-bar" className="tab-bar">
