@@ -37,7 +37,7 @@ jobs:
           cache-dependency-path: portfolio/package-lock.json
 
       - name: Install Node dependencies
-        run: npm ci
+        run: npm install
         working-directory: portfolio
 
       - name: Run ESLint
@@ -111,9 +111,12 @@ jobs:
       - name: Install Chrome (headless-compatible)
         # browser-actions/setup-chrome installs a pinned Chrome build on the
         # runner. Ubuntu runners no longer ship Chrome pre-installed (as of 2024).
+        # selenium-manager (bundled in Selenium 4.6+) locates this Chrome
+        # automatically — no webdriver-manager or manual chromedriver needed.
         uses: browser-actions/setup-chrome@v1
 
       - name: Run Selenium tests
         # -v gives verbose output so each test name appears in the Actions log.
         # The BASE_URL in test_portfolio.py defaults to http://localhost:3000.
+        # selenium-manager auto-resolves ChromeDriver at runtime.
         run: pytest tests/test_portfolio.py -v
