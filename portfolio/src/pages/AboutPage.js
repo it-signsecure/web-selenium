@@ -22,7 +22,7 @@ function AboutPage() {
           Hi! I'm a computer science student passionate about building software,
           automating everything, and shipping products to the cloud. This
           portfolio showcases my projects, technical writing, and achievements.
-          Welcome to my demo!
+          Welcome to my Selenium, CI/CD, and AWS demo!
         </p>
       </section>
 
