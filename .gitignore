@@ -1,0 +1,20 @@
+# Node
+node_modules/
+portfolio/build/
+portfolio/.env
+npm-debug.log*
+yarn-error.log
+
+# Python
+__pycache__/
+*.pyc
+.pytest_cache/
+venv/
+.env
+
+# OS
+.DS_Store
+
+# IDE
+.vscode/
+.idea/
