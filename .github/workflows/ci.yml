@@ -146,15 +146,18 @@ jobs:
 
       - name: Compute PR diff (git)
         run: |
-          BASE_REF="${{ github.event.pull_request.base.ref }}"
-          HEAD_REF="${{ github.event.pull_request.head.ref }}"
-          git fetch origin "$BASE_REF" "$HEAD_REF" --no-tags
-          git diff --patch "origin/$BASE_REF...origin/$HEAD_REF" > pr.diff
+          BASE_SHA="${{ github.event.pull_request.base.sha }}"
+          PR_NUMBER="${{ github.event.pull_request.number }}"
+          git fetch origin --no-tags "$BASE_SHA" "pull/${PR_NUMBER}/head:pr-head"
+          git diff --patch "${BASE_SHA}...pr-head" > pr.diff
           echo "Diff bytes: $(wc -c < pr.diff || echo 0)"
 
       - name: Install Cursor CLI
         run: |
-          curl https://cursor.com/install -fsS | bash
+          curl https://cursor.com/install -fsS -o /tmp/cursor-install.sh
+          file /tmp/cursor-install.sh
+          bash /tmp/cursor-install.sh
+          rm -f /tmp/cursor-install.sh
           echo "$HOME/.cursor/bin" >> "$GITHUB_PATH"
           cursor-agent --version
 
@@ -205,34 +208,34 @@ jobs:
           fi
 
           cat > prompt.txt <<'PROMPT'
-          You are a strict senior code reviewer.
-          Produce **GitHub-flavored Markdown** with the sections below and concise bullets.
-          ALSO append a one-line counts footer at the VERY END in this EXACT format:
-          BLOCKERS: <n> | MAJORS: <n> | MINORS: <n>
+You are a strict senior code reviewer.
+Produce **GitHub-flavored Markdown** with the sections below and concise bullets.
+ALSO append a one-line counts footer at the VERY END in this EXACT format:
+BLOCKERS: <n> | MAJORS: <n> | MINORS: <n>
 
-          Sections:
-          ## Summary
-          - Brief overview of what changed
+Sections:
+## Summary
+- Brief overview of what changed
 
-          ## Blockers (must-fix before merge)
-          - For each: file:line(s), issue, why it's a problem
-          - **Proposed fix** with a minimal fenced code snippet
+## Blockers (must-fix before merge)
+- For each: file:line(s), issue, why it's a problem
+- **Proposed fix** with a minimal fenced code snippet
 
-          ## Major Issues
-          - Same details + fix snippet
+## Major Issues
+- Same details + fix snippet
 
-          ## Minor / Nits
-          - Same details + fix snippet where useful
+## Minor / Nits
+- Same details + fix snippet where useful
 
-          ## Tests
-          - Missing/impacted tests + example cases
+## Tests
+- Missing/impacted tests + example cases
 
-          ## Security & Performance (only if applicable)
-          - Concrete risk/impact + focused fix snippet
+## Security & Performance (only if applicable)
+- Concrete risk/impact + focused fix snippet
 
-          Analyze this Git diff:
-          <DIFF>
-          PROMPT
+Analyze this Git diff:
+<DIFF>
+PROMPT
 
           cat pr.diff >> prompt.txt
           echo '</DIFF>' >> prompt.txt
@@ -246,7 +249,7 @@ jobs:
             echo "Skipping cursor-agent run (analysis previously skipped)."
             exit 0
           fi
-          cursor-agent --print --output-format text --yolo -p "$(cat prompt.txt)" > review.txt
+          cursor-agent --print --output-format text -p "$(cat prompt.txt)" > review.txt
 
       - name: Comment on PR
         env:
@@ -257,6 +260,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: cursor-findings
+          if-no-files-found: warn
           path: |
             review.txt
             prompt.txt
