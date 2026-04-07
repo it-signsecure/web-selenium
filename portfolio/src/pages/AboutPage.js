@@ -20,7 +20,7 @@ function AboutPage() {
         <h1>About Me</h1>
         <p>
           Hi! I'm a computer science student passionate about building software,
-          automating everything, and shipping products to the cloud. This
+          automating everything, AI, and shipping products to the cloud. This
           portfolio showcases my projects, technical writing, and achievements.
           Welcome to my Selenium, CI/CD, and AWS demo!
         </p>
