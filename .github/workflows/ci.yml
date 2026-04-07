@@ -201,42 +201,42 @@ jobs:
           fi
 
       - name: Build prompt file
+        env:
+          REVIEW_PROMPT: |
+            You are a strict senior code reviewer.
+            Produce **GitHub-flavored Markdown** with the sections below and concise bullets.
+            ALSO append a one-line counts footer at the VERY END in this EXACT format:
+            BLOCKERS: <n> | MAJORS: <n> | MINORS: <n>
+
+            Sections:
+            ## Summary
+            - Brief overview of what changed
+
+            ## Blockers (must-fix before merge)
+            - For each: file:line(s), issue, why it's a problem
+            - **Proposed fix** with a minimal fenced code snippet
+
+            ## Major Issues
+            - Same details + fix snippet
+
+            ## Minor / Nits
+            - Same details + fix snippet where useful
+
+            ## Tests
+            - Missing/impacted tests + example cases
+
+            ## Security & Performance (only if applicable)
+            - Concrete risk/impact + focused fix snippet
+
+            Analyze this Git diff:
+            <DIFF>
         run: |
           if [ -f review.txt ]; then
             echo "Analysis skipped earlier; not building prompt."
             exit 0
           fi
 
-          cat > prompt.txt <<'PROMPT'
-You are a strict senior code reviewer.
-Produce **GitHub-flavored Markdown** with the sections below and concise bullets.
-ALSO append a one-line counts footer at the VERY END in this EXACT format:
-BLOCKERS: <n> | MAJORS: <n> | MINORS: <n>
-
-Sections:
-## Summary
-- Brief overview of what changed
-
-## Blockers (must-fix before merge)
-- For each: file:line(s), issue, why it's a problem
-- **Proposed fix** with a minimal fenced code snippet
-
-## Major Issues
-- Same details + fix snippet
-
-## Minor / Nits
-- Same details + fix snippet where useful
-
-## Tests
-- Missing/impacted tests + example cases
-
-## Security & Performance (only if applicable)
-- Concrete risk/impact + focused fix snippet
-
-Analyze this Git diff:
-<DIFF>
-PROMPT
-
+          printf '%s\n' "$REVIEW_PROMPT" > prompt.txt
           cat pr.diff >> prompt.txt
           echo '</DIFF>' >> prompt.txt
           wc -c prompt.txt || true
