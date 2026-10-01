@@ -14,6 +14,17 @@ name: CI - Lint, Build, and Selenium Tests
 on:
   push:
     branches: ["**"]
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+# Avoid overlapping Cursor review runs for the same PR
+concurrency:
+  group: cursor-review-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: true
 
 jobs:
   # ───────────────────────────────────────────────────────────────────────────
@@ -118,3 +129,173 @@ jobs:
         # The BASE_URL in test_portfolio.py defaults to http://localhost:3000.
         # selenium-manager auto-resolves ChromeDriver at runtime.
         run: pytest tests/test_portfolio.py -v
+
+  # ───────────────────────────────────────────────────────────────────────────
+  # Job 3: Cursor AI Code Review (runs only on pull requests)
+  # ───────────────────────────────────────────────────────────────────────────
+  cursor-review:
+    name: Analyze PR with Cursor
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout PR branch
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Compute PR diff (git)
+        run: |
+          BASE_SHA="${{ github.event.pull_request.base.sha }}"
+          PR_NUMBER="${{ github.event.pull_request.number }}"
+          git fetch origin --no-tags "$BASE_SHA" "pull/${PR_NUMBER}/head:pr-head"
+          git diff --patch "${BASE_SHA}...pr-head" > pr.diff
+          echo "Diff bytes: $(wc -c < pr.diff || echo 0)"
+
+      - name: Install Cursor CLI
+        run: |
+          curl https://cursor.com/install -fsS -o /tmp/cursor-install.sh
+          file /tmp/cursor-install.sh
+          bash /tmp/cursor-install.sh
+          rm -f /tmp/cursor-install.sh
+          echo "$HOME/.cursor/bin" >> "$GITHUB_PATH"
+          cursor-agent --version
+
+      - name: Guardrails (secret & diff size)
+        env:
+          CURSOR_API_KEY: ${{ secrets.CURSOR_API_KEY }}
+        run: |
+          if [ -z "$CURSOR_API_KEY" ]; then
+            echo "no_api_key" > skip_reason.txt
+            {
+              echo "## Cursor Code Review"
+              echo
+              echo "> Skipped automated analysis: no_api_key (fork PRs cannot access repo secrets)."
+              echo
+              echo "**Totals**: 0 blocker(s), 0 major(s), 0 minor(s)"
+              echo
+              echo "BLOCKERS: 0 | MAJORS: 0 | MINORS: 0"
+            } > review.txt
+            exit 0
+          fi
+
+          BYTES=$(wc -c < pr.diff || echo 0)
+          if [ "$BYTES" -eq 0 ]; then
+            echo "empty_diff" > skip_reason.txt
+            {
+              echo "## Cursor Code Review"
+              echo
+              echo "> Skipped automated analysis: empty_diff"
+              echo
+              echo "**Totals**: 0 blocker(s), 0 major(s), 0 minor(s)"
+              echo
+              echo "BLOCKERS: 0 | MAJORS: 0 | MINORS: 0"
+            } > review.txt
+            exit 0
+          fi
+
+          MAX=300000
+          if [ "$BYTES" -gt "$MAX" ]; then
+            head -c $MAX pr.diff > pr.diff.trim && mv pr.diff.trim pr.diff
+            echo "::notice:: Diff truncated to $MAX bytes."
+          fi
+
+      - name: Build prompt file
+        env:
+          REVIEW_PROMPT: |
+            You are a strict senior code reviewer.
+            Produce **GitHub-flavored Markdown** with the sections below and concise bullets.
+            ALSO append a one-line counts footer at the VERY END in this EXACT format:
+            BLOCKERS: <n> | MAJORS: <n> | MINORS: <n>
+
+            Sections:
+            ## Summary
+            - Brief overview of what changed
+
+            ## Blockers (must-fix before merge)
+            - For each: file:line(s), issue, why it's a problem
+            - **Proposed fix** with a minimal fenced code snippet
+
+            ## Major Issues
+            - Same details + fix snippet
+
+            ## Minor / Nits
+            - Same details + fix snippet where useful
+
+            ## Tests
+            - Missing/impacted tests + example cases
+
+            ## Security & Performance (only if applicable)
+            - Concrete risk/impact + focused fix snippet
+
+            Analyze this Git diff:
+            <DIFF>
+        run: |
+          if [ -f review.txt ]; then
+            echo "Analysis skipped earlier; not building prompt."
+            exit 0
+          fi
+
+          printf '%s\n' "$REVIEW_PROMPT" > prompt.txt
+          cat pr.diff >> prompt.txt
+          echo '</DIFF>' >> prompt.txt
+          wc -c prompt.txt || true
+
+      - name: Run Cursor (text)
+        env:
+          CURSOR_API_KEY: ${{ secrets.CURSOR_API_KEY }}
+        run: |
+          if [ -f review.txt ]; then
+            echo "Skipping cursor-agent run (analysis previously skipped)."
+            exit 0
+          fi
+          cursor-agent --trust --print --output-format text -p "$(cat prompt.txt)" > review.txt
+
+      - name: Comment on PR
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh -R "${{ github.repository }}" pr comment "${{ github.event.pull_request.number }}" --body-file review.txt
+
+      - name: Upload findings artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: cursor-findings
+          if-no-files-found: warn
+          path: |
+            review.txt
+            prompt.txt
+            pr.diff
+            skip_reason.txt
+
+  # gate:
+  #   name: Enforce Policy (fail on blockers)
+  #   runs-on: ubuntu-latest
+  #   needs: cursor-review
+  #
+  #   steps:
+  #     - name: Download findings
+  #       uses: actions/download-artifact@v4
+  #       with:
+  #         name: cursor-findings
+  #
+  #     - name: Fail if any blockers (skips do not fail)
+  #       run: |
+  #         if [ -f skip_reason.txt ]; then
+  #           echo "Skip reason present ($(cat skip_reason.txt)) — not gating this PR."
+  #           exit 0
+  #         fi
+  #
+  #         COUNTS_LINE=$(grep -E '^BLOCKERS:' review.txt | tail -n 1 || true)
+  #         if [ -z "$COUNTS_LINE" ]; then
+  #           echo "Counts footer not found — treating as zero blockers."
+  #           BLOCKERS=0
+  #         else
+  #           BLOCKERS=$(echo "$COUNTS_LINE" | sed -n 's/^BLOCKERS:[[:space:]]*\([0-9]\+\).*/\1/p')
+  #           if ! echo "$BLOCKERS" | grep -Eq '^[0-9]+$'; then BLOCKERS=0; fi
+  #         fi
+  #
+  #         echo "Blockers parsed: $BLOCKERS"
+  #         if [ "$BLOCKERS" -gt 0 ]; then
+  #           echo "Blocking merge due to $BLOCKERS blocker(s)."
+  #           exit 1
+  #         fi

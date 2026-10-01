@@ -19,8 +19,8 @@ function AboutPage() {
       <section data-testid="about-section" className="about-section">
         <h1>About Me</h1>
         <p>
-          Hi! I'm a computer science student passionate about building software,
-          automating everything, and shipping products to the cloud. This
+          Hi! I'm a computer engineering student passionate about building software,
+          automating everything, AI, and shipping products to the cloud. This
           portfolio showcases my projects, technical writing, and achievements.
           Welcome to my Selenium, CI/CD, and AWS demo!
         </p>
